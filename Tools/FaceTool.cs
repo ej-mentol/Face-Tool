@@ -324,6 +324,12 @@ namespace HammerTime.FaceTool.Tools
                     _selectedFaces[0] = selectedFaceInfo;
                 }
             }
+            else
+            {
+                // Stale state (e.g. operation failed without OperationComplete) — reset and start fresh
+                _selectedFaces.Clear();
+                _selectedFaces.Add(selectedFaceInfo);
+            }
 
             viewport.Control.Invalidate();
         }

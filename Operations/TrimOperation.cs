@@ -68,21 +68,14 @@ namespace HammerTime.FaceTool.Operations
 
                     clone.Split(document.Map.NumberGenerator, clipPlane, out Solid back, out Solid front);
 
-                    transaction.Add(new Detatch(parentId, solid));
+                    var kept = keepFront ? front : back;
 
-                    if (keepFront)
+                    // If Split didn't intersect, kept == clone (unchanged). Don't touch the original.
+                    if (kept != clone)
                     {
-                        if (front != null)
-                        {
-                            transaction.Add(new Attach(parentId, front));
-                        }
-                    }
-                    else
-                    {
-                        if (back != null)
-                        {
-                            transaction.Add(new Attach(parentId, back));
-                        }
+                        transaction.Add(new Detatch(parentId, solid));
+                        if (kept != null)
+                            transaction.Add(new Attach(parentId, kept));
                     }
                 }
                 else

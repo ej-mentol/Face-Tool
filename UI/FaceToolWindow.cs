@@ -67,10 +67,12 @@ namespace HammerTime.FaceTool.UI
             InitializeComponent();
             
             Oy.Subscribe<bool>("Theme:Changed", isDark => {
-                _isDarkTheme = isDark; // Update the internal state
-                this.InvokeLater(() => Sledge.Shell.Registers.DialogRegister.ColorControlsRecursively(this, isDark));
-                HighlightRose(targetRoseButtons, targetRoseGridIndex); // Reapply rose styling
-                HighlightRose(sourceRoseButtons, sourceRoseGridIndex); // Reapply rose styling
+                _isDarkTheme = isDark;
+                this.InvokeLater(() => {
+                    Sledge.Shell.Registers.DialogRegister.ColorControlsRecursively(this, isDark);
+                    HighlightRose(targetRoseButtons, targetRoseGridIndex);
+                    HighlightRose(sourceRoseButtons, sourceRoseGridIndex);
+                });
             });
         }
 
@@ -503,31 +505,44 @@ namespace HammerTime.FaceTool.UI
             var doc = _tool.GetDocument();
             if (faces.Count < 1 || doc == null) return;
 
-            var target = faces[0]; // Only a target face was clicked
+            var target = faces[0];
 
-            // Source = current Hammer selection
-            var sourceObjects = doc.Selection?.ToList();
-            if (sourceObjects == null || sourceObjects.Count == 0) return;
+            var rawSelection = doc.Selection?.ToList();
+            if (rawSelection == null || rawSelection.Count == 0) return;
+
+            // Filter out children whose parent is already in the selection (prevent double transform)
+            var candidateSet = new HashSet<IMapObject>(rawSelection);
+            var sourceObjects = rawSelection.Where(obj => {
+                var parent = obj.Hierarchy.Parent;
+                while (parent != null)
+                {
+                    if (candidateSet.Contains(parent)) return false;
+                    parent = parent.Hierarchy.Parent;
+                }
+                return true;
+            }).ToList();
+
+            if (sourceObjects.Count == 0) return;
+
+            // One shared matrix from ALL vertices across ALL selected objects
+            var allVerts = sourceObjects
+                .SelectMany(o => o.FindAll())
+                .OfType<Sledge.BspEditor.Primitives.MapObjects.Solid>()
+                .SelectMany(s => s.Faces)
+                .SelectMany(f => f.Vertices)
+                .ToList();
+
+            if (!allVerts.Any()) return;
+
+            var snapMatrix = Operations.SnapOperation.CreateMatrix(
+                allVerts,
+                target.Face.Plane,
+                (float)numOffset.Value,
+                chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked);
 
             var transaction = new Transaction();
             foreach (var sourceObj in sourceObjects)
-            {
-                var allVerts = sourceObj.FindAll()
-                    .OfType<Sledge.BspEditor.Primitives.MapObjects.Solid>()
-                    .SelectMany(s => s.Faces)
-                    .SelectMany(f => f.Vertices)
-                    .ToList();
-
-                if (!allVerts.Any()) continue;
-
-                var snapMatrix = Operations.SnapOperation.CreateMatrix(
-                    allVerts,
-                    target.Face.Plane,
-                    (float)numOffset.Value,
-                    chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked);
-
                 transaction.Add(new Operations.TransformWithTextures(snapMatrix, sourceObj));
-            }
 
             if (chkSnapGrid.Checked)
             {

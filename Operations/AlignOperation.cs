@@ -52,7 +52,7 @@ namespace HammerTime.FaceTool.Operations
                         v1 = Vector2.Normalize(v1);
                         v2 = Vector2.Normalize(v2);
                         float angle = (float)(Math.Atan2(v2.Y, v2.X) - Math.Atan2(v1.Y, v1.X));
-                        finalRotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, angle);
+                        finalRotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -angle);
                     }
                     else
                     {
@@ -148,7 +148,7 @@ namespace HammerTime.FaceTool.Operations
             if (q.W * q.W < 1e-6f) {
                 // The rotation axis is specified by the vector part of the quaternion.
                 // If this axis is aligned with the twist axis, the entire rotation is a twist.
-                if (Vector3.Dot(Vector3.Normalize(r), axis) > 0.9999f) return q;
+                if (Math.Abs(Vector3.Dot(Vector3.Normalize(r), axis)) > 0.9999f) return q;
                 // Otherwise, there is no twist component around this axis.
                 return Quaternion.Identity;
             }
