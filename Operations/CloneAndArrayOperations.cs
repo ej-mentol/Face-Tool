@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using Sledge.BspEditor.Modification;
 using Sledge.BspEditor.Modification.Operations;
 using Sledge.BspEditor.Modification.Operations.Tree;
@@ -12,8 +14,11 @@ namespace HammerTime.FaceTool.Operations
         public static IOperation CloneToFace(
             IEnumerable<IMapObject> sourceObjects,
             FaceTool.Tools.FaceTool tool,
+            int sourceAnchorIndex,
+            int targetAnchorIndex,
             bool lockRotPitch, bool lockRotRoll, bool lockRotYaw,
-            float offset)
+            float offset,
+            bool lockX, bool lockY, bool lockZ)
         {
             if (tool.SourceFace == null || tool.TargetFace == null || !sourceObjects.Any())
                 return new Sledge.BspEditor.Modification.Operations.Data.AddMapData();
@@ -21,39 +26,101 @@ namespace HammerTime.FaceTool.Operations
             var doc = tool.GetDocument();
             var transaction = new Transaction();
 
-            // 1. Compute Align and Snap matrices once
+            var sourcePivot = FacePlacement.GetAlignPivot(tool.SourceFace, sourceAnchorIndex);
+
             var alignMatrix = AlignOperation.CreateMatrix(
                 tool.SourceFace.Plane.Normal,
                 tool.TargetFace.Plane.Normal,
-                tool.SourceFace.Origin,
+                sourcePivot,
                 lockRotPitch, lockRotRoll, lockRotYaw);
 
-            var rotatedVertices = tool.SourceFace.Vertices
-                .Select(v => System.Numerics.Vector3.Transform(v, alignMatrix))
-                .ToList();
-
-            var snapMatrix = SnapOperation.CreateMatrix(
-                rotatedVertices,
-                tool.TargetFace.Plane,
+            var snapMatrix = FacePlacement.ComputeSnapMatrix(
+                tool.SourceFace,
+                tool.TargetFace,
+                alignMatrix,
+                sourceAnchorIndex,
+                targetAnchorIndex,
                 offset,
-                false, false, false);
+                lockX, lockY, lockZ);
 
             foreach (var sourceObject in sourceObjects)
             {
-                // 2. Clone using Copy with NumberGenerator so it gets new unique IDs
                 var clone = (IMapObject)sourceObject.Copy(doc.Map.NumberGenerator);
                 var parentId = sourceObject.Hierarchy.Parent.ID;
 
-                // 3. Apply matrices directly to clone geometry
                 TransformWithTextures.ApplyDirect(clone, alignMatrix);
                 TransformWithTextures.ApplyDirect(clone, snapMatrix);
 
-                // 4. Attach to the map tree
                 transaction.Add(new Attach(parentId, clone));
+            }
+
+            return transaction;
+        }
+
+        public static IOperation CreateArray(
+            IEnumerable<IMapObject> sourceObjects,
+            FaceTool.Tools.FaceTool tool,
+            int sourceAnchorIndex,
+            int targetAnchorIndex,
+            int countX, int countY,
+            decimal spacingX, decimal spacingY,
+            bool keepHierarchy,
+            bool lockRotPitch, bool lockRotRoll, bool lockRotYaw,
+            float offset,
+            bool lockX, bool lockY, bool lockZ)
+        {
+            if (tool.SourceFace == null || tool.TargetFace == null || !sourceObjects.Any())
+                return new Sledge.BspEditor.Modification.Operations.Data.AddMapData();
+
+            var doc = tool.GetDocument();
+            var transaction = new Transaction();
+
+            var normal = tool.TargetFace.Plane.Normal;
+            var up = Math.Abs(normal.Z) < 0.9f ? Vector3.UnitZ : Vector3.UnitY;
+            var tangent = Vector3.Normalize(Vector3.Cross(normal, up));
+            var bitangent = Vector3.Normalize(Vector3.Cross(normal, tangent));
+
+            var sourcePivot = FacePlacement.GetAlignPivot(tool.SourceFace, sourceAnchorIndex);
+            var targetPivot = targetAnchorIndex == FacePlacement.AnchorOff
+                ? tool.TargetFace.Origin
+                : FacePlacement.CalculateAnchorOnFace(tool.TargetFace, targetAnchorIndex);
+
+            var alignMatrix = AlignOperation.CreateMatrix(
+                tool.SourceFace.Plane.Normal,
+                tool.TargetFace.Plane.Normal,
+                sourcePivot,
+                lockRotPitch, lockRotRoll, lockRotYaw);
+
+            var baseSnapMatrix = FacePlacement.ComputeSnapMatrix(
+                tool.SourceFace,
+                tool.TargetFace,
+                alignMatrix,
+                sourceAnchorIndex,
+                targetAnchorIndex,
+                offset,
+                lockX, lockY, lockZ);
+
+            for (int x = 0; x < countX; x++)
+            {
+                for (int y = 0; y < countY; y++)
+                {
+                    var arrayOffset = tangent * (float)spacingX * x + bitangent * (float)spacingY * y;
+                    var snapMatrix = baseSnapMatrix * Matrix4x4.CreateTranslation(arrayOffset);
+
+                    foreach (var sourceObject in sourceObjects)
+                    {
+                        var clone = (IMapObject)sourceObject.Copy(doc.Map.NumberGenerator);
+                        var parentId = keepHierarchy ? sourceObject.Hierarchy.Parent.ID : doc.Map.Root.ID;
+
+                        TransformWithTextures.ApplyDirect(clone, alignMatrix);
+                        TransformWithTextures.ApplyDirect(clone, snapMatrix);
+
+                        transaction.Add(new Attach(parentId, clone));
+                    }
+                }
             }
 
             return transaction;
         }
     }
 }
-

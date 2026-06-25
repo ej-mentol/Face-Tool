@@ -78,7 +78,7 @@ namespace HammerTime.FaceTool.Operations
             }
             else
             {
-                // 0 or 1 axes locked — use standard 3D rotation and filter using Euler angles
+                // For 0 or 1 locks, we calculate the full 3D rotation first.
                 var cross = Vector3.Cross(sourceNormal, desiredNormal);
                 float crossLen = cross.Length();
 
@@ -86,16 +86,7 @@ namespace HammerTime.FaceTool.Operations
                 if (crossLen < 1e-6f)
                 {
                     float dot = Vector3.Dot(sourceNormal, desiredNormal);
-                    if (dot > 0)
-                    {
-                        baseRotation = Quaternion.Identity;
-                    }
-                    else
-                    {
-                        Vector3 perp = Math.Abs(sourceNormal.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY;
-                        Vector3 axis = Vector3.Normalize(Vector3.Cross(sourceNormal, perp));
-                        baseRotation = Quaternion.CreateFromAxisAngle(axis, (float)Math.PI);
-                    }
+                    baseRotation = dot > 0 ? Quaternion.Identity : Quaternion.CreateFromAxisAngle(Vector3.Normalize(Vector3.Cross(sourceNormal, Math.Abs(sourceNormal.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY)), (float)Math.PI);
                 }
                 else
                 {
@@ -104,20 +95,26 @@ namespace HammerTime.FaceTool.Operations
                     baseRotation = Quaternion.CreateFromAxisAngle(axis, (float)Math.Acos(dot));
                 }
 
-                if (lockPitch || lockRoll || lockYaw)
+                if (lockCount == 1)
                 {
-                    var euler = ToEulerAngles(baseRotation);
-
-                    if (lockPitch) euler.X = 0;
-                    if (lockRoll)  euler.Y = 0;
-                    if (lockYaw)   euler.Z = 0;
-
-                    var qz = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, euler.Z);
-                    var qx = Quaternion.CreateFromAxisAngle(Vector3.UnitX, euler.X);
-                    var qy = Quaternion.CreateFromAxisAngle(Vector3.UnitY, euler.Y);
-                    finalRotation = qz * qx * qy;
+                    // If one axis is locked, we use swing-twist decomposition to remove the rotation around that axis.
+                    // This is more stable than converting to Euler angles.
+                    Quaternion rotation = baseRotation;
+                    if (lockPitch)
+                    {
+                        rotation = rotation * Quaternion.Inverse(GetTwist(rotation, Vector3.UnitX));
+                    }
+                    if (lockRoll)
+                    {
+                        rotation = rotation * Quaternion.Inverse(GetTwist(rotation, Vector3.UnitY));
+                    }
+                    if (lockYaw)
+                    {
+                        rotation = rotation * Quaternion.Inverse(GetTwist(rotation, Vector3.UnitZ));
+                    }
+                    finalRotation = rotation;
                 }
-                else
+                else // lockCount == 0
                 {
                     finalRotation = baseRotation;
                 }
@@ -138,40 +135,38 @@ namespace HammerTime.FaceTool.Operations
             return new TransformWithTextures(matrix, targets);
         }
 
-        private static Vector3 ToEulerAngles(Quaternion q)
+        /// <summary>
+        /// Decomposes a quaternion into a "twist" component around a given axis.
+        /// </summary>
+        private static Quaternion GetTwist(Quaternion q, Vector3 axis)
         {
-            Vector3 euler = new Vector3();
-
-            double w = q.W, x = q.X, y = q.Y, z = q.Z;
-
-            // Matrix elements (derived from quaternion, row-major / transposed)
-            double m11 = 1.0 - 2.0 * (y * y + z * z);
-            double m12 = 2.0 * (x * y - w * z);
-            double m13 = 2.0 * (x * z + w * y);
-            double m21 = 2.0 * (x * y + w * z);
-            double m22 = 1.0 - 2.0 * (x * x + z * z);
-            double m23 = 2.0 * (y * z - w * x);
-            double m31 = 2.0 * (x * z - w * y);
-            double m32 = 2.0 * (y * z + w * x);
-            double m33 = 1.0 - 2.0 * (x * x + y * y);
-
-            // Extract Pitch (X), Roll (Y), Yaw (Z) in ZXY order
-            euler.X = (float)Math.Asin(Math.Clamp(m23, -1.0, 1.0));
-
-            if (Math.Abs(m23) < 0.999999f)
-            {
-                euler.Z = (float)Math.Atan2(-m13, m33);
-                euler.Y = (float)Math.Atan2(-m21, m22);
-            }
-            else
-            {
-                // Gimbal lock case
-                euler.Z = (float)Math.Atan2(m12, m11);
-                euler.Y = 0f;
+            axis = Vector3.Normalize(axis);
+            var r = new Vector3(q.X, q.Y, q.Z);
+            
+            // Handle singularity: rotation by 180 degrees.
+            // In this case, the "w" component is close to 0.
+            if (q.W * q.W < 1e-6f) {
+                // The rotation axis is specified by the vector part of the quaternion.
+                // If this axis is aligned with the twist axis, the entire rotation is a twist.
+                if (Vector3.Dot(Vector3.Normalize(r), axis) > 0.9999f) return q;
+                // Otherwise, there is no twist component around this axis.
+                return Quaternion.Identity;
             }
 
-            return euler;
+            var p = Project(r, axis);
+            var twist = new Quaternion(p, q.W);
+            return Quaternion.Normalize(twist);
         }
+        
+        /// <summary>
+        /// Projects a vector onto another vector.
+        /// </summary>
+        private static Vector3 Project(Vector3 vector, Vector3 onNormal)
+        {
+            return Vector3.Dot(vector, onNormal) * onNormal;
+        }
+
+
     }
 }
 

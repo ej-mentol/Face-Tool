@@ -27,22 +27,97 @@ namespace HammerTime.FaceTool.Tools
     [DefaultHotkey("Shift+F")]
     public class FaceTool : BaseTool
     {
-        public Face? SourceFace { get; set; }
-        public IMapObject? SourceObject { get; set; }
-        public Solid? SourceSolid { get; set; }
+        // New state machine logic
+        public enum ToolMode
+        {
+            None,
+            Align,
+            Snap,
+            AlignSnap,
+            CloneToFace,
+            Trim,
+            Rectify,
+            PlaceTrim,
+        }
+        
+        public struct SelectedFace
+        {
+            public Face Face { get; }
+            public Solid Solid { get; }
+            public IMapObject TransformableObject { get; }
 
-        public Face? TargetFace { get; set; }
-        public IMapObject? TargetObject { get; set; }
-        public Solid? TargetSolid { get; set; }
+            public SelectedFace(Face face, Solid solid, IMapObject transformableObject)
+            {
+                Face = face;
+                Solid = solid;
+                TransformableObject = transformableObject;
+            }
+        }
+
+        public ToolMode CurrentMode { get; private set; } = ToolMode.None;
+        private readonly List<SelectedFace> _selectedFaces = new List<SelectedFace>();
+
+        // Compatibility properties for old code (Snap, Rectify, Clone ops)
+        public Face? SourceFace => _selectedFaces.Count > 0 ? _selectedFaces[0].Face : null;
+        public Solid? SourceSolid => _selectedFaces.Count > 0 ? _selectedFaces[0].Solid : null;
+        public IMapObject? SourceObject => _selectedFaces.Count > 0 ? _selectedFaces[0].TransformableObject : null;
+        public Face? TargetFace => _selectedFaces.Count > 1 ? _selectedFaces[1].Face : null;
+        public Solid? TargetSolid => _selectedFaces.Count > 1 ? _selectedFaces[1].Solid : null;
+        public IMapObject? TargetObject => _selectedFaces.Count > 1 ? _selectedFaces[1].TransformableObject : null;
 
         public bool ShowHoverHelper { get; set; } = true;
 
-        private UI.FaceToolWindow _window;
+        private readonly UI.FaceToolWindow _window;
 
         public FaceTool()
         {
             Usage = ToolUsage.View3D;
             _window = new UI.FaceToolWindow(this);
+        }
+
+        public void SetCurrentMode(ToolMode mode)
+        {
+            if (mode == CurrentMode)
+            {
+                mode = ToolMode.None;
+            }
+
+            CurrentMode = mode;
+            _selectedFaces.Clear();
+            _window.UpdateInterfaceForMode(CurrentMode);
+        }
+
+        public void OperationComplete()
+        {
+            bool keepModeActive = _window.IsOperationLockChecked;
+
+            // Clear selections from the last operation
+            _selectedFaces.Clear();
+
+            if (keepModeActive)
+            {
+                // Partial reset: just update the UI, stay in the current mode for the next operation
+                _window.UpdateInterfaceForMode(CurrentMode);
+            }
+            else
+            {
+                // Full reset: turn off the mode
+                SetCurrentMode(ToolMode.None);
+            }
+        }
+
+        // Methods for legacy compatibility
+        public void ClearAllSelections()
+        {
+            _selectedFaces.Clear();
+        }
+
+        public void ClearTargetInSelection()
+        {
+            if (_selectedFaces.Count > 1)
+            {
+                _selectedFaces.RemoveAt(1);
+            }
         }
 
         public override async Task ToolSelected()
@@ -59,12 +134,7 @@ namespace HammerTime.FaceTool.Tools
         public override async Task ToolDeselected()
         {
             _window.Hide();
-            SourceFace = null;
-            SourceObject = null;
-            SourceSolid = null;
-            TargetFace = null;
-            TargetObject = null;
-            TargetSolid = null;
+            SetCurrentMode(ToolMode.None); // Ensure state is fully reset
             HoverFace = null;
             await base.ToolDeselected();
         }
@@ -174,53 +244,87 @@ namespace HammerTime.FaceTool.Tools
 
         protected override void MouseDown(MapDocument document, MapViewport viewport, PerspectiveCamera camera, ViewportEvent e)
         {
-            if (viewport == null || (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right)) return;
+            if (viewport == null) return;
+
+            // Exit mode on right click
+            if (e.Button == MouseButtons.Right)
+            {
+                if (CurrentMode != ToolMode.None)
+                {
+                    SetCurrentMode(ToolMode.None);
+                    viewport.Control.Invalidate();
+                }
+                return;
+            }
+
+            if (e.Button != MouseButtons.Left) return;
 
             var hit = RaycastFace(document, camera, e.X, e.Y);
 
             if (hit == null)
             {
-                // Click in empty space — clear selection
-                if (e.Button == MouseButtons.Left)
+                if (CurrentMode != ToolMode.None)
                 {
-                    SourceFace = null;
-                    SourceObject = null;
-                    SourceSolid = null;
-                }
-                else if (e.Button == MouseButtons.Right)
-                {
-                    TargetFace = null;
-                    TargetObject = null;
-                    TargetSolid = null;
+                    _selectedFaces.Clear();
+                    _window.UpdateInterfaceForMode(CurrentMode);
                 }
                 viewport.Control.Invalidate();
                 return;
             }
 
-            var targetObject = ResolveScope(hit.Value.Solid, CurrentScope);
-
-            if (e.Button == MouseButtons.Left)
+            // Fully transparent in None mode — pass through to Hammer
+            if (CurrentMode == ToolMode.None)
             {
-                // Ctrl + Left Click = Pick Target, Left Click = Pick Source
-                if (Control.ModifierKeys == Keys.Control)
+                return;
+            }
+
+            // We are in an active mode.
+            var selectedFaceInfo = new SelectedFace(hit.Value.Face, hit.Value.Solid, ResolveScope(hit.Value.Solid, CurrentScope));
+            bool ctrl = Control.ModifierKeys == Keys.Control;
+            int step = _selectedFaces.Count;
+
+            // Rectify: 1-click
+            if (CurrentMode == ToolMode.Rectify)
+            {
+                _selectedFaces.Add(selectedFaceInfo);
+                _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
+                return;
+            }
+
+            // Snap: no first click needed — uses Hammer selection as Source.
+            // Only needs a target face (Ctrl+click).
+            if (CurrentMode == ToolMode.Snap)
+            {
+                if (ctrl)
                 {
-                    TargetFace = hit.Value.Face;
-                    TargetObject = targetObject;
-                    TargetSolid = hit.Value.Solid;
+                    _selectedFaces.Clear();
+                    _selectedFaces.Add(selectedFaceInfo); // Target
+                    _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
+                }
+                viewport.Control.Invalidate();
+                return;
+            }
+            
+            // Handle all 2-click operations
+            if (step == 0) // Waiting for the first face (Source)
+            {
+                _selectedFaces.Add(selectedFaceInfo);
+            }
+            else if (step == 1) // Waiting for the second face (Target)
+            {
+                if (ctrl)
+                {
+                    // This is the trigger-click. Select face 2 and execute.
+                    _selectedFaces.Add(selectedFaceInfo);
+                    _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
                 }
                 else
                 {
-                    SourceFace = hit.Value.Face;
-                    SourceObject = targetObject;
-                    SourceSolid = hit.Value.Solid;
+                    // This is a re-selection of the first face (Source)
+                    _selectedFaces[0] = selectedFaceInfo;
                 }
             }
-            else if (e.Button == MouseButtons.Right)
-            {
-                TargetFace = hit.Value.Face;
-                TargetObject = targetObject;
-                TargetSolid = hit.Value.Solid;
-            }
+
             viewport.Control.Invalidate();
         }
 
@@ -254,98 +358,29 @@ namespace HammerTime.FaceTool.Tools
             return lastMatch;
         }
 
-        private void RefreshReferences(MapDocument document)
-        {
-            if (SourceObject != null)
-            {
-                var currentSourceObj = document.Map.Root.FindByID(SourceObject.ID);
-                if (currentSourceObj == null)
-                {
-                    SourceFace = null;
-                    SourceObject = null;
-                    SourceSolid = null;
-                }
-                else
-                {
-                    SourceObject = currentSourceObj;
-                    if (SourceSolid != null)
-                    {
-                        var currentSolid = document.Map.Root.FindByID(SourceSolid.ID) as Solid;
-                        if (currentSolid != null)
-                        {
-                            SourceSolid = currentSolid;
-                            if (SourceFace != null)
-                            {
-                                SourceFace = currentSolid.Faces.FirstOrDefault(f => f.ID == SourceFace.ID);
-                            }
-                        }
-                        else
-                        {
-                            SourceFace = null;
-                            SourceSolid = null;
-                        }
-                    }
-                }
-            }
-
-            if (TargetObject != null)
-            {
-                var currentTargetObj = document.Map.Root.FindByID(TargetObject.ID);
-                if (currentTargetObj == null)
-                {
-                    TargetFace = null;
-                    TargetObject = null;
-                    TargetSolid = null;
-                }
-                else
-                {
-                    TargetObject = currentTargetObj;
-                    if (TargetSolid != null)
-                    {
-                        var currentSolid = document.Map.Root.FindByID(TargetSolid.ID) as Solid;
-                        if (currentSolid != null)
-                        {
-                            TargetSolid = currentSolid;
-                            if (TargetFace != null)
-                            {
-                                TargetFace = currentSolid.Faces.FirstOrDefault(f => f.ID == TargetFace.ID);
-                            }
-                        }
-                        else
-                        {
-                            TargetFace = null;
-                            TargetSolid = null;
-                        }
-                    }
-                }
-            }
-        }
-
         protected override void Render(MapDocument document, BufferBuilder builder, Sledge.BspEditor.Rendering.Resources.ResourceCollector resourceCollector)
         {
             base.Render(document, builder, resourceCollector);
-            RefreshReferences(document);
 
             var verts = new List<VertexStandard>();
             var indices = new List<uint>();
             var groups = new List<BufferGroup>();
 
-            // Source Face (Blue)
-            if (SourceFace != null)
+            // Draw selected faces
+            if (_selectedFaces.Count > 0)
             {
-                var selectionColour = Color.FromArgb(64, Color.DeepSkyBlue).ToVector4();
-                RenderFace(SourceFace, selectionColour, verts, indices, groups);
+                var source = _selectedFaces[0];
+                RenderFace(source.Face, Color.FromArgb(64, Color.DeepSkyBlue).ToVector4(), verts, indices, groups);
+            }
+            if (_selectedFaces.Count > 1)
+            {
+                var target = _selectedFaces[1];
+                RenderFace(target.Face, Color.FromArgb(64, Color.LimeGreen).ToVector4(), verts, indices, groups);
             }
 
-            // Target Face (Green)
-            if (TargetFace != null)
-            {
-                var selectionColour = Color.FromArgb(64, Color.LimeGreen).ToVector4();
-                RenderFace(TargetFace, selectionColour, verts, indices, groups);
-            }
-
-            // Hover Face (Yellow) — preview of what a click would select, skipped if already committed
-            if (ShowHoverHelper && HoverFace != null && HoverFace != SourceFace && HoverFace != TargetFace)
+            // Draw hover face
+            var selectedFaceObjects = _selectedFaces.Select(f => f.Face).ToList();
+            if (ShowHoverHelper && HoverFace != null && !selectedFaceObjects.Contains(HoverFace))
             {
                 var hoverColour = Color.FromArgb(40, Color.Gold).ToVector4();
                 RenderFace(HoverFace, hoverColour, verts, indices, groups);
