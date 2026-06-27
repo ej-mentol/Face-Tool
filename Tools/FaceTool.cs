@@ -6,12 +6,14 @@ using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using LogicAndTrick.Oy;
 using Sledge.BspEditor.Documents;
 using Sledge.BspEditor.Primitives.MapObjects;
 using Sledge.BspEditor.Rendering.Viewport;
 using Sledge.BspEditor.Tools;
 using Sledge.Common.Shell.Components;
 using Sledge.Common.Shell.Hotkeys;
+using Sledge.Shell;
 using Sledge.DataStructures.Geometric;
 using Sledge.Rendering.Cameras;
 using Sledge.Rendering.Pipelines;
@@ -68,14 +70,46 @@ namespace HammerTime.FaceTool.Tools
         public bool ShowHoverHelper { get; set; } = true;
 
         private readonly UI.FaceToolWindow _window;
+        private bool _active = false;
 
         public FaceTool()
         {
             Usage = ToolUsage.View3D;
             _window = new UI.FaceToolWindow(this);
+            Oy.Subscribe<ITool>("Tool:Activated", ToolActivated);
         }
 
-        public void SetCurrentMode(ToolMode mode)
+        private void ToolActivated(ITool tool)
+        {
+            if (tool == null) return;
+            string toolName = tool.Name;
+            if (toolName == "Face Tool" || toolName == "SelectTool")
+            {
+                if (_active)
+                {
+                    _window.InvokeLater(() => {
+                        if (!_window.Visible)
+                        {
+                            _window.Show();
+                        }
+                    });
+                }
+            }
+            else
+            {
+                _window.InvokeLater(() => _window.Hide());
+                CurrentMode = ToolMode.None;
+                _selectedFaces.Clear();
+                _window.UpdateInterfaceForMode(ToolMode.None);
+            }
+        }
+
+        public async Task SetCurrentMode(ToolMode mode)
+        {
+            await SetCurrentModeInternal(mode, publishToolChange: true);
+        }
+
+        private async Task SetCurrentModeInternal(ToolMode mode, bool publishToolChange)
         {
             if (mode == CurrentMode)
             {
@@ -84,10 +118,33 @@ namespace HammerTime.FaceTool.Tools
 
             CurrentMode = mode;
             _selectedFaces.Clear();
+
+            var doc = GetDocument();
+            if (doc != null && CurrentMode != ToolMode.None && CurrentMode != ToolMode.Snap)
+            {
+                if (doc.Selection != null && !doc.Selection.IsEmpty)
+                {
+                    await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc,
+                        new Sledge.BspEditor.Modification.Operations.Selection.Deselect(doc.Selection.ToList()));
+                }
+            }
+
+            if (publishToolChange)
+            {
+                if (CurrentMode == ToolMode.None)
+                {
+                    await Oy.Publish("ActivateTool", "SelectTool");
+                }
+                else
+                {
+                    await Oy.Publish("ActivateTool", "Face Tool");
+                }
+            }
+
             _window.UpdateInterfaceForMode(CurrentMode);
         }
 
-        public void OperationComplete()
+        public async Task OperationComplete()
         {
             bool keepModeActive = _window.IsOperationLockChecked;
 
@@ -102,7 +159,7 @@ namespace HammerTime.FaceTool.Tools
             else
             {
                 // Full reset: turn off the mode
-                SetCurrentMode(ToolMode.None);
+                await SetCurrentMode(ToolMode.None);
             }
         }
 
@@ -122,19 +179,30 @@ namespace HammerTime.FaceTool.Tools
 
         public override async Task ToolSelected()
         {
+            _active = true;
             var parent = Application.OpenForms.Cast<Form>().FirstOrDefault(f => f.GetType().Name == "Shell") ?? Form.ActiveForm;
-            if (parent != null)
+            if (parent != null && parent != _window)
             {
                 _window.Owner = parent;
             }
             _window.Show();
             await base.ToolSelected();
+
+            if (CurrentMode == ToolMode.None)
+            {
+                await Oy.Publish("ActivateTool", "SelectTool");
+            }
+        }
+
+        public void DeactivatePlugin()
+        {
+            _active = false;
+            _ = SetCurrentMode(ToolMode.None);
         }
 
         public override async Task ToolDeselected()
         {
-            _window.Hide();
-            SetCurrentMode(ToolMode.None); // Ensure state is fully reset
+            await SetCurrentModeInternal(ToolMode.None, publishToolChange: false);
             HoverFace = null;
             await base.ToolDeselected();
         }
@@ -251,7 +319,7 @@ namespace HammerTime.FaceTool.Tools
             {
                 if (CurrentMode != ToolMode.None)
                 {
-                    SetCurrentMode(ToolMode.None);
+                    _ = SetCurrentMode(ToolMode.None);
                     viewport.Control.Invalidate();
                 }
                 return;
@@ -281,6 +349,7 @@ namespace HammerTime.FaceTool.Tools
             // We are in an active mode.
             var selectedFaceInfo = new SelectedFace(hit.Value.Face, hit.Value.Solid, ResolveScope(hit.Value.Solid, CurrentScope));
             bool ctrl = Control.ModifierKeys == Keys.Control;
+            bool requireCtrl = _window.IsCtrlModeChecked;
             int step = _selectedFaces.Count;
 
             // Rectify: 1-click
@@ -291,11 +360,10 @@ namespace HammerTime.FaceTool.Tools
                 return;
             }
 
-            // Snap: no first click needed — uses Hammer selection as Source.
-            // Only needs a target face (Ctrl+click).
+            // Snap: 1-click on target face
             if (CurrentMode == ToolMode.Snap)
             {
-                if (ctrl)
+                if (!requireCtrl || ctrl)
                 {
                     _selectedFaces.Clear();
                     _selectedFaces.Add(selectedFaceInfo); // Target
@@ -312,21 +380,20 @@ namespace HammerTime.FaceTool.Tools
             }
             else if (step == 1) // Waiting for the second face (Target)
             {
-                if (ctrl)
+                if (!requireCtrl || ctrl)
                 {
-                    // This is the trigger-click. Select face 2 and execute.
                     _selectedFaces.Add(selectedFaceInfo);
                     _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
                 }
                 else
                 {
-                    // This is a re-selection of the first face (Source)
+                    // If Ctrl mode is enabled but Ctrl is not pressed, a click updates the source face
                     _selectedFaces[0] = selectedFaceInfo;
                 }
             }
             else
             {
-                // Stale state (e.g. operation failed without OperationComplete) — reset and start fresh
+                // Stale state — reset and start fresh
                 _selectedFaces.Clear();
                 _selectedFaces.Add(selectedFaceInfo);
             }

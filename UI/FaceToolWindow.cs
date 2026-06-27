@@ -21,15 +21,15 @@ namespace HammerTime.FaceTool.UI
     {
         private readonly Tools.FaceTool _tool;
 
-        private CheckBox btnAlign = null!;
-        private CheckBox btnSnap = null!;
-        private CheckBox btnAlignSnap = null!;
-        private CheckBox btnTrim = null!;
-        private CheckBox btnRectify = null!;
+        private Button btnAlign = null!;
+        private Button btnSnap = null!;
+        private Button btnAlignSnap = null!;
+        private Button btnTrim = null!;
+        private Button btnRectify = null!;
         private Button btnRestore = null!;
         private Button btnClearAnchor = null!;
-        private CheckBox btnClone = null!;
-        private CheckBox btnPlaceTrim = null!;
+        private Button btnClone = null!;
+        private Button btnPlaceTrim = null!;
 
         private CheckBox chkLockX = null!;
         private CheckBox chkLockY = null!;
@@ -44,6 +44,7 @@ namespace HammerTime.FaceTool.UI
         private CheckBox chkShowHoverHelper = null!;
         private CheckBox chkInvertNext = null!;
         private CheckBox chkOperationLock = null!;
+        private CheckBox chkCtrlMode = null!;
 
         private ComboBox cmbScope = null!;
         private NumericUpDown numOffset = null!;
@@ -72,6 +73,7 @@ namespace HammerTime.FaceTool.UI
                     Sledge.Shell.Registers.DialogRegister.ColorControlsRecursively(this, isDark);
                     HighlightRose(targetRoseButtons, targetRoseGridIndex);
                     HighlightRose(sourceRoseButtons, sourceRoseGridIndex);
+                    UpdateOperationButtons(_tool.CurrentMode);
                 });
             });
         }
@@ -107,30 +109,32 @@ namespace HammerTime.FaceTool.UI
             opsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             for (int r = 0; r < 4; r++) opsTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
 
-            btnAlign = new CheckBox { Text = "Align", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
-            btnSnap = new CheckBox { Text = "Snap", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
-            btnAlignSnap = new CheckBox { Text = "Align + Snap", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
-            btnClone = new CheckBox { Text = "Clone To Face", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
-            btnTrim = new CheckBox { Text = "Trim", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
-            btnPlaceTrim = new CheckBox { Text = "Place & Trim", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
+            btnAlign = new Button { Text = "Align", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnSnap = new Button { Text = "Snap", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnAlignSnap = new Button { Text = "Align + Snap", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnClone = new Button { Text = "Clone To Face", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnTrim = new Button { Text = "Trim", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnPlaceTrim = new Button { Text = "Place & Trim", Dock = DockStyle.Fill, Margin = new Padding(1) };
             chkOperationLock = new CheckBox { Text = "Lock Mode", AutoSize = true };
+            chkCtrlMode = new CheckBox { Text = "Ctrl Mode", AutoSize = true };
             var toolTip = new ToolTip();
             toolTip.SetToolTip(chkOperationLock, "Keep the current mode active after an operation is performed");
+            toolTip.SetToolTip(chkCtrlMode, "Require holding CTRL to execute operations on click");
 
 
             opsTbl.Controls.Add(btnAlign, 0, 0); opsTbl.Controls.Add(btnSnap, 1, 0);
             opsTbl.Controls.Add(btnAlignSnap, 0, 1); opsTbl.Controls.Add(btnClone, 1, 1);
             opsTbl.Controls.Add(btnTrim, 0, 2); opsTbl.Controls.Add(btnPlaceTrim, 1, 2);
             opsTbl.Controls.Add(chkOperationLock, 0, 3);
-            opsTbl.SetColumnSpan(chkOperationLock, 2);
+            opsTbl.Controls.Add(chkCtrlMode, 1, 3);
             grpOps.Controls.Add(opsTbl);
 
             // --- ANCHOR MANAGEMENT ---
             var grpAncMan = new GroupBox { Text = "Anchor / Rectification", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var ancTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, AutoSize = true, Width = 240 };
-            for (int r = 0; r < 3; r++) ancTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
+            var ancTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, AutoSize = true, Width = 240 };
+            for (int r = 0; r < 4; r++) ancTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
 
-            btnRectify = new CheckBox { Text = "Rectify", Dock = DockStyle.Fill, Margin = new Padding(1), Appearance = Appearance.Button };
+            btnRectify = new Button { Text = "Rectify", Dock = DockStyle.Fill, Margin = new Padding(1) };
             btnRestore = new Button { Text = "Restore from Anchor", Dock = DockStyle.Fill, Margin = new Padding(1), Enabled = false };
             btnClearAnchor = new Button { Text = "Clear Anchor", Dock = DockStyle.Fill, Margin = new Padding(1) };
             ancTbl.Controls.Add(btnRectify, 0, 0);
@@ -148,11 +152,11 @@ namespace HammerTime.FaceTool.UI
             sourceRoseButtons = CreateRoseGrid(isTarget: false);
 
             var targetPanel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.None };
-            targetPanel.Controls.Add(new Label { Text = "Target (2nd click)", AutoSize = true, ForeColor = Color.DimGray });
+            targetPanel.Controls.Add(new Label { Text = "Target (2nd click)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(0, 3, 3, 0) });
             targetPanel.Controls.Add(WrapRoseGrid(targetRoseButtons));
 
             var sourcePanel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.None };
-            sourcePanel.Controls.Add(new Label { Text = "Source (1st click)", AutoSize = true, ForeColor = Color.DimGray });
+            sourcePanel.Controls.Add(new Label { Text = "Source (1st click)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(0, 3, 3, 0) });
             sourcePanel.Controls.Add(WrapRoseGrid(sourceRoseButtons));
 
             placementTbl.Controls.Add(targetPanel, 0, 0);
@@ -200,6 +204,14 @@ namespace HammerTime.FaceTool.UI
             optLeft.Controls.Add(chkShowHoverHelper = new CheckBox { Text = "Show Hover Helper", AutoSize = true, Checked = true });
             chkShowHoverHelper.CheckedChanged += (s, e) => _tool.ShowHoverHelper = chkShowHoverHelper.Checked;
             optLeft.Controls.Add(chkInvertNext = new CheckBox { Text = "Invert Next Operation", AutoSize = true });
+            optLeft.Controls.Add(new Label
+            {
+                Text = "v0.0.1-alpha",
+                ForeColor = Color.DarkGray,
+                Font = new Font(this.Font.FontFamily, 7.5f, FontStyle.Regular),
+                AutoSize = true,
+                Margin = new Padding(0, 10, 0, 0)
+            });
 
             var optRight = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
             optRight.Controls.Add(new Label { Text = "Scope:", AutoSize = true });
@@ -238,13 +250,13 @@ namespace HammerTime.FaceTool.UI
             this.AutoSize = true;
             this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
-            btnAlign.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Align);
-            btnAlignSnap.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.AlignSnap);
-            btnClone.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.CloneToFace);
-            btnTrim.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Trim);
-            btnPlaceTrim.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.PlaceTrim);
-            btnSnap.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Snap);
-            btnRectify.Click += (s, e) => _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Rectify);
+            btnAlign.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Align);
+            btnAlignSnap.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.AlignSnap);
+            btnClone.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.CloneToFace);
+            btnTrim.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Trim);
+            btnPlaceTrim.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.PlaceTrim);
+            btnSnap.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Snap);
+            btnRectify.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Rectify);
             
             // These are also unchanged for now
             btnRestore.Click += async (s, e) => await PerformRestore();
@@ -364,6 +376,7 @@ namespace HammerTime.FaceTool.UI
             {
                 e.Cancel = true;
                 this.Hide();
+                _tool.DeactivatePlugin();
             }
             base.OnFormClosing(e);
         }
@@ -497,7 +510,7 @@ namespace HammerTime.FaceTool.UI
                 chkRotX.Checked, chkRotY.Checked, chkRotZ.Checked);
 
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformSnap(List<Tools.FaceTool.SelectedFace> faces)
@@ -551,8 +564,11 @@ namespace HammerTime.FaceTool.UI
                     transaction.Add(Operations.GridSnapOperation.Create(sourceObjects, gridData.Grid.Spacing));
             }
 
+            // Deselect selected brush objects after snap
+            transaction.Add(new Sledge.BspEditor.Modification.Operations.Selection.Deselect(doc.Selection?.ToList() ?? new List<IMapObject>()));
+
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, transaction);
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformAlignSnap(List<Tools.FaceTool.SelectedFace> faces)
@@ -591,7 +607,7 @@ namespace HammerTime.FaceTool.UI
             }
 
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, transaction);
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformClone(List<Tools.FaceTool.SelectedFace> faces)
@@ -623,7 +639,7 @@ namespace HammerTime.FaceTool.UI
                     chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked);
 
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformTrim(List<Tools.FaceTool.SelectedFace> faces)
@@ -639,13 +655,13 @@ namespace HammerTime.FaceTool.UI
             if (op is Transaction t && t.IsEmpty)
             {
                 MessageBox.Show("The clipping plane does not intersect the solid.", "Trim Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                _tool.OperationComplete();
+                await _tool.OperationComplete();
                 return;
             }
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
             if (chkInvertNext.Checked) chkInvertNext.Checked = false;
             
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
         
         private async Task PerformRectify(List<Tools.FaceTool.SelectedFace> faces)
@@ -657,7 +673,7 @@ namespace HammerTime.FaceTool.UI
 
             var op = Operations.RectifyOperation.Create(doc, new[] { source.TransformableObject }, source.Face.Plane.Normal, source.Face.Origin);
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformPlaceTrim(List<Tools.FaceTool.SelectedFace> faces)
@@ -690,14 +706,14 @@ namespace HammerTime.FaceTool.UI
             if (op is Transaction t && t.IsEmpty)
             {
                 MessageBox.Show("The clipping plane does not intersect the aligned/snapped geometry.", "Trim Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                _tool.OperationComplete();
+                await _tool.OperationComplete();
                 return;
             }
 
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
             if (chkInvertNext.Checked) chkInvertNext.Checked = false;
 
-            _tool.OperationComplete();
+            await _tool.OperationComplete();
         }
 
         private async Task PerformRestore()
@@ -723,6 +739,7 @@ namespace HammerTime.FaceTool.UI
         }
 
         public bool IsOperationLockChecked => chkOperationLock.Checked;
+        public bool IsCtrlModeChecked => chkCtrlMode.Checked;
 
         public void UpdateInterfaceForMode(Tools.FaceTool.ToolMode mode)
         {
@@ -732,7 +749,7 @@ namespace HammerTime.FaceTool.UI
 
         public void UpdateOperationButtons(Tools.FaceTool.ToolMode mode)
         {
-            var buttons = new Dictionary<Tools.FaceTool.ToolMode, CheckBox>
+            var buttons = new Dictionary<Tools.FaceTool.ToolMode, Button>
             {
                 [Tools.FaceTool.ToolMode.Align] = btnAlign,
                 [Tools.FaceTool.ToolMode.Snap] = btnSnap,
@@ -743,9 +760,25 @@ namespace HammerTime.FaceTool.UI
                 [Tools.FaceTool.ToolMode.PlaceTrim] = btnPlaceTrim,
             };
 
+            Color normalBack = btnRestore != null ? btnRestore.BackColor : SystemColors.Control;
+            Color normalFore = btnRestore != null ? btnRestore.ForeColor : SystemColors.ControlText;
+
             foreach (var p in buttons)
             {
-                if (p.Value != null) p.Value.Checked = p.Key == mode;
+                if (p.Value == null) continue;
+                bool isActive = p.Key == mode;
+                if (isActive)
+                {
+                    p.Value.BackColor = Color.DodgerBlue;
+                    p.Value.ForeColor = Color.White;
+                    p.Value.Font = new Font(p.Value.Font, FontStyle.Bold);
+                }
+                else
+                {
+                    p.Value.BackColor = normalBack;
+                    p.Value.ForeColor = normalFore;
+                    p.Value.Font = new Font(p.Value.Font, FontStyle.Regular);
+                }
             }
         }
 
@@ -803,6 +836,7 @@ namespace HammerTime.FaceTool.UI
             }
             LoadSettings();
             UpdateAnchorUI();
+            UpdateOperationButtons(_tool.CurrentMode);
         }
 
         protected override void OnVisibleChanged(EventArgs e)
@@ -854,6 +888,7 @@ namespace HammerTime.FaceTool.UI
                 numSpaceX.Value = settings.SpacingX;
                 numSpaceY.Value = settings.SpacingY;
                 chkKeepHierarchy.Checked = settings.KeepHierarchy;
+                chkCtrlMode.Checked = settings.CtrlMode;
             }
             catch { }
         }
@@ -884,7 +919,8 @@ namespace HammerTime.FaceTool.UI
                     ArrayCountY = (int)numArrayY.Value,
                     SpacingX = numSpaceX.Value,
                     SpacingY = numSpaceY.Value,
-                    KeepHierarchy = chkKeepHierarchy.Checked
+                    KeepHierarchy = chkKeepHierarchy.Checked,
+                    CtrlMode = chkCtrlMode.Checked
                 };
 
                 var path = GetSettingsPath();
@@ -925,5 +961,6 @@ namespace HammerTime.FaceTool.UI
         public decimal SpacingX { get; set; } = 0;
         public decimal SpacingY { get; set; } = 0;
         public bool KeepHierarchy { get; set; } = true;
+        public bool CtrlMode { get; set; } = true;
     }
 }
