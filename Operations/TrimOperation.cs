@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Sledge.BspEditor.Documents;
 using Sledge.BspEditor.Modification;
@@ -57,25 +58,30 @@ namespace HammerTime.FaceTool.Operations
             var transaction = new Transaction();
             foreach (var target in targets)
             {
-                if (target is Solid solid)
+                var solids = target.FindAll().OfType<Solid>().ToList();
+                if (solids.Count > 0)
                 {
-                    var parentId = solid.Hierarchy.Parent.ID;
-                    var clone = (Solid)solid.Copy(document.Map.NumberGenerator);
-                    
-                    TransformWithTextures.ApplyDirect(clone, matrix);
-
-                    bool keepFront = !invertSide;
-
-                    clone.Split(document.Map.NumberGenerator, clipPlane, out Solid back, out Solid front);
-
-                    var kept = keepFront ? front : back;
-
-                    // If Split didn't intersect, kept == clone (unchanged). Don't touch the original.
-                    if (kept != clone)
+                    foreach (var solid in solids)
                     {
-                        transaction.Add(new Detatch(parentId, solid));
-                        if (kept != null)
+                        var parentId = solid.Hierarchy.Parent.ID;
+                        var clone = (Solid)solid.Copy(document.Map.NumberGenerator);
+                        
+                        TransformWithTextures.ApplyDirect(clone, matrix);
+
+                        bool keepFront = !invertSide;
+                        clone.Split(document.Map.NumberGenerator, clipPlane, out Solid back, out Solid front);
+
+                        var kept = keepFront ? front : back;
+
+                        if (kept != clone && kept != null)
+                        {
+                            transaction.Add(new Detatch(parentId, solid));
                             transaction.Add(new Attach(parentId, kept));
+                        }
+                        else
+                        {
+                            transaction.Add(new TransformWithTextures(matrix, solid));
+                        }
                     }
                 }
                 else

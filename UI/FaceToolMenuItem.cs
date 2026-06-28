@@ -1,5 +1,6 @@
 using System.ComponentModel.Composition;
 using System.Drawing;
+using System.Linq;
 using System.Threading.Tasks;
 using Sledge.Common.Shell.Context;
 using Sledge.Common.Shell.Menu;
@@ -29,7 +30,34 @@ namespace HammerTime.FaceTool.UI
         public string Path => "";
         public string Group => "Tools";
         public string OrderHint => "J";
-        public string ShortcutText => "Shift+F";
+        public string ShortcutText
+        {
+            get
+            {
+                try
+                {
+                    var property = typeof(Sledge.Shell.Forms.BaseForm).GetProperty("HotkeyRegister", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                    var register = property?.GetValue(null);
+                    if (register != null)
+                    {
+                        var getHotkeyMethod = register.GetType().GetMethod("GetHotkey", new[] { typeof(string) });
+                        var hk = getHotkeyMethod?.Invoke(register, new object[] { "Face Tool" });
+                        if (hk != null)
+                        {
+                            var getHotkeyStringMethod = register.GetType().GetMethods()
+                                .FirstOrDefault(m => m.Name == "GetHotkeyString" && m.GetParameters().Length == 1);
+                            var shortcut = getHotkeyStringMethod?.Invoke(register, new[] { hk }) as string;
+                            return shortcut ?? "";
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fallback to default
+                }
+                return "Shift+F";
+            }
+        }
 
         // IMenuItemExtendedProperties
         public bool IsToggle => false;

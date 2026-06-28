@@ -20,6 +20,7 @@ namespace HammerTime.FaceTool.UI
     public class FaceToolWindow : Form
     {
         private readonly Tools.FaceTool _tool;
+        private readonly Lazy<Sledge.Common.Translations.ITranslationStringProvider> _translator;
 
         private Button btnAlign = null!;
         private Button btnSnap = null!;
@@ -30,6 +31,7 @@ namespace HammerTime.FaceTool.UI
         private Button btnClearAnchor = null!;
         private Button btnClone = null!;
         private Button btnPlaceTrim = null!;
+        private Button btnMiterJoin = null!;
 
         private CheckBox chkLockX = null!;
         private CheckBox chkLockY = null!;
@@ -40,9 +42,6 @@ namespace HammerTime.FaceTool.UI
         private CheckBox chkRotZ = null!;
 
         private CheckBox chkSnapGrid = null!;
-        private CheckBox chkInvertTrimSide = null!;
-        private CheckBox chkShowHoverHelper = null!;
-        private CheckBox chkInvertNext = null!;
         private CheckBox chkOperationLock = null!;
         private CheckBox chkCtrlMode = null!;
 
@@ -60,12 +59,26 @@ namespace HammerTime.FaceTool.UI
         private NumericUpDown numSpaceX = null!, numSpaceY = null!;
         private CheckBox chkKeepHierarchy = null!;
 
+        private ComboBox cmbProfiles = null!;
+        private Button btnAddProfile = null!;
+        private Button btnDeleteProfile = null!;
+        private Button btnRenameProfile = null!;
+        private readonly List<FaceToolProfile> _profiles = new List<FaceToolProfile>();
+
+        private static readonly string ProfilesFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Hammertime",
+            "FaceToolProfiles.json"
+        );
+
         private bool _isDarkTheme;
 
-        public FaceToolWindow(Tools.FaceTool tool)
+        public FaceToolWindow(Tools.FaceTool tool, Lazy<Sledge.Common.Translations.ITranslationStringProvider> translator)
         {
             _tool = tool;
+            _translator = translator;
             InitializeComponent();
+            LoadProfilesList();
             
             Oy.Subscribe<bool>("Theme:Changed", isDark => {
                 _isDarkTheme = isDark;
@@ -80,7 +93,7 @@ namespace HammerTime.FaceTool.UI
 
         private void InitializeComponent()
         {
-            this.Text = "Face Tool";
+            this.Text = GetString("Title", "Face Tool");
             this.TopMost = false;
             this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
             this.StartPosition = FormStartPosition.Manual;
@@ -91,7 +104,7 @@ namespace HammerTime.FaceTool.UI
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 3,
+                RowCount = 5,
                 Padding = new Padding(8),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink
@@ -101,25 +114,25 @@ namespace HammerTime.FaceTool.UI
             mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             // --- OPERATIONS ---
-            var grpOps = new GroupBox { Text = "Operations", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
+            var grpOps = new GroupBox { Text = GetString("GroupOperations", "Operations"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
             var opsTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, AutoSize = true, Width = 240 };
             opsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             opsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             for (int r = 0; r < 4; r++) opsTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
 
-            btnAlign = new Button { Text = "Align", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnSnap = new Button { Text = "Snap", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnAlignSnap = new Button { Text = "Align + Snap", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnClone = new Button { Text = "Clone To Face", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnTrim = new Button { Text = "Trim", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnPlaceTrim = new Button { Text = "Place & Trim", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            chkOperationLock = new CheckBox { Text = "Lock Mode", AutoSize = true };
-            chkCtrlMode = new CheckBox { Text = "Ctrl Mode", AutoSize = true };
-            var toolTip = new ToolTip();
-            toolTip.SetToolTip(chkOperationLock, "Keep the current mode active after an operation is performed");
-            toolTip.SetToolTip(chkCtrlMode, "Require holding CTRL to execute operations on click");
+            btnAlign = new Button { Text = GetString("Align", "Align"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnSnap = new Button { Text = GetString("Snap", "Snap"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnAlignSnap = new Button { Text = GetString("AlignSnap", "Align + Snap"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnClone = new Button { Text = GetString("CloneToFace", "Clone To Face"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnTrim = new Button { Text = GetString("Trim", "Trim"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnPlaceTrim = new Button { Text = GetString("PlaceTrim", "Place && Trim"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            chkOperationLock = new CheckBox { Text = GetString("LockMode", "Lock Mode"), AutoSize = true };
+            chkCtrlMode = new CheckBox { Text = GetString("CtrlMode", "Ctrl Mode"), AutoSize = true };
+
 
 
             opsTbl.Controls.Add(btnAlign, 0, 0); opsTbl.Controls.Add(btnSnap, 1, 0);
@@ -130,20 +143,22 @@ namespace HammerTime.FaceTool.UI
             grpOps.Controls.Add(opsTbl);
 
             // --- ANCHOR MANAGEMENT ---
-            var grpAncMan = new GroupBox { Text = "Anchor / Rectification", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
+            var grpAncMan = new GroupBox { Text = GetString("GroupAnchor", "Anchor / Rectification"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
             var ancTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, AutoSize = true, Width = 240 };
             for (int r = 0; r < 4; r++) ancTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
 
-            btnRectify = new Button { Text = "Rectify", Dock = DockStyle.Fill, Margin = new Padding(1) };
-            btnRestore = new Button { Text = "Restore from Anchor", Dock = DockStyle.Fill, Margin = new Padding(1), Enabled = false };
-            btnClearAnchor = new Button { Text = "Clear Anchor", Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnRectify = new Button { Text = GetString("Rectify", "Rectify"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnRestore = new Button { Text = GetString("Restore", "Restore from Anchor"), Dock = DockStyle.Fill, Margin = new Padding(1), Enabled = false };
+            btnClearAnchor = new Button { Text = GetString("ClearAnchor", "Clear Anchor"), Dock = DockStyle.Fill, Margin = new Padding(1) };
+            btnMiterJoin = new Button { Text = GetString("MiterJoin", "Miter Join"), Dock = DockStyle.Fill, Margin = new Padding(1) };
             ancTbl.Controls.Add(btnRectify, 0, 0);
             ancTbl.Controls.Add(btnRestore, 0, 1);
             ancTbl.Controls.Add(btnClearAnchor, 0, 2);
+            ancTbl.Controls.Add(btnMiterJoin, 0, 3);
             grpAncMan.Controls.Add(ancTbl);
 
             // --- PLACEMENT (two roses) ---
-            var grpPlacement = new GroupBox { Text = "Placement", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
+            var grpPlacement = new GroupBox { Text = GetString("GroupPlacement", "Placement"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
             var placementTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true, Width = 240 };
             placementTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             placementTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
@@ -164,7 +179,7 @@ namespace HammerTime.FaceTool.UI
             grpPlacement.Controls.Add(placementTbl);
 
             // --- CLONE ARRAY ---
-            var grpClone = new GroupBox { Text = "Clone Array", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
+            var grpClone = new GroupBox { Text = GetString("GroupClone", "Clone Array Options"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
             var cloneTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, AutoSize = true, Width = 240 };
             cloneTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
             cloneTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
@@ -175,68 +190,60 @@ namespace HammerTime.FaceTool.UI
             numSpaceX = CreateNum(0, -1000, 1000, dec: true);
             numSpaceY = CreateNum(0, -1000, 1000, dec: true);
 
-            cloneTbl.Controls.Add(new Label { Text = "Count:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            cloneTbl.Controls.Add(new Label { Text = GetString("Count", "Count:"), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
             cloneTbl.Controls.Add(LabeledNum("X", numArrayX), 1, 0);
             cloneTbl.Controls.Add(LabeledNum("Y", numArrayY), 2, 0);
 
-            cloneTbl.Controls.Add(new Label { Text = "Spacing:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
+            cloneTbl.Controls.Add(new Label { Text = GetString("Spacing", "Spacing:"), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
             cloneTbl.Controls.Add(LabeledNum("X", numSpaceX), 1, 1);
             cloneTbl.Controls.Add(LabeledNum("Y", numSpaceY), 2, 1);
 
-            chkKeepHierarchy = new CheckBox { Text = "Keep Hierarchy", AutoSize = true, Checked = true };
+            chkKeepHierarchy = new CheckBox { Text = GetString("KeepHierarchy", "Keep Hierarchy"), AutoSize = true, Checked = true };
             cloneTbl.Controls.Add(chkKeepHierarchy, 0, 2);
             cloneTbl.SetColumnSpan(chkKeepHierarchy, 3);
             grpClone.Controls.Add(cloneTbl);
 
             // --- OPTIONS ---
-            var grpOptions = new GroupBox { Text = "Options", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var optTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
+            var grpOptions = new GroupBox { Text = GetString("GroupOptions", "Options"), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(6) };
+            var optTbl = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1, AutoSize = true };
             optTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             optTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            optTbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var optLeft = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-            optLeft.Controls.Add(new Label { Text = "Offset:", AutoSize = true });
-            numOffset = new NumericUpDown { Minimum = -10000, Maximum = 10000, Width = 120, Value = 0 };
-            optLeft.Controls.Add(numOffset);
-
-            optLeft.Controls.Add(chkSnapGrid = new CheckBox { Text = "Snap To Grid", AutoSize = true });
-            optLeft.Controls.Add(chkInvertTrimSide = new CheckBox { Text = "Invert Trim Side", AutoSize = true });
-            optLeft.Controls.Add(chkShowHoverHelper = new CheckBox { Text = "Show Hover Helper", AutoSize = true, Checked = true });
-            chkShowHoverHelper.CheckedChanged += (s, e) => _tool.ShowHoverHelper = chkShowHoverHelper.Checked;
-            optLeft.Controls.Add(chkInvertNext = new CheckBox { Text = "Invert Next Operation", AutoSize = true });
-            optLeft.Controls.Add(new Label
-            {
-                Text = "v0.0.1-alpha",
-                ForeColor = Color.DarkGray,
-                Font = new Font(this.Font.FontFamily, 7.5f, FontStyle.Regular),
-                AutoSize = true,
-                Margin = new Padding(0, 10, 0, 0)
-            });
-
-            var optRight = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-            optRight.Controls.Add(new Label { Text = "Scope:", AutoSize = true });
-            cmbScope = new ComboBox { Width = 160, DropDownStyle = ComboBoxStyle.DropDownList };
+            optLeft.Controls.Add(new Label { Text = GetString("Scope", "Scope:"), AutoSize = true });
+            cmbScope = new ComboBox { Width = 120, Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
             cmbScope.Items.AddRange(new object[] { "Auto", "Brush", "Group", "Entity" });
             cmbScope.SelectedIndex = 0;
             cmbScope.SelectedIndexChanged += (s, e) => _tool.CurrentScope = (Tools.FaceTool.SelectionScope)cmbScope.SelectedIndex;
-            optRight.Controls.Add(cmbScope);
+            optLeft.Controls.Add(cmbScope);
 
-            optRight.Controls.Add(new Label { Text = "Position Locks:", AutoSize = true, Margin = new Padding(0, 6, 0, 0) });
+            optLeft.Controls.Add(new Label { Text = GetString("Offset", "Offset:"), AutoSize = true, Margin = new Padding(0, 4, 0, 0) });
+            numOffset = new NumericUpDown { Minimum = -10000, Maximum = 10000, Width = 120, Value = 0 };
+            optLeft.Controls.Add(numOffset);
+
+            
+
+            var optRight = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+            optRight.Controls.Add(new Label { Text = GetString("PositionLocks", "Position Locks:"), AutoSize = true });
             var posLocks = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true };
             posLocks.Controls.Add(chkLockX = new CheckBox { Text = "X", AutoSize = true });
             posLocks.Controls.Add(chkLockY = new CheckBox { Text = "Y", AutoSize = true });
             posLocks.Controls.Add(chkLockZ = new CheckBox { Text = "Z", AutoSize = true });
             optRight.Controls.Add(posLocks);
 
-            optRight.Controls.Add(new Label { Text = "Rotation Locks:", AutoSize = true, Margin = new Padding(0, 4, 0, 0) });
+            optRight.Controls.Add(new Label { Text = GetString("RotationLocks", "Rotation Locks:"), AutoSize = true, Margin = new Padding(0, 4, 0, 0) });
             var rotLocks = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true };
             rotLocks.Controls.Add(chkRotX = new CheckBox { Text = "X", AutoSize = true, Checked = true });
             rotLocks.Controls.Add(chkRotY = new CheckBox { Text = "Y", AutoSize = true, Checked = true });
             rotLocks.Controls.Add(chkRotZ = new CheckBox { Text = "Z", AutoSize = true });
             optRight.Controls.Add(rotLocks);
 
+            optRight.Controls.Add(chkSnapGrid = new CheckBox { Text = GetString("SnapToGrid", "Snap To Grid"), AutoSize = true, Margin = new Padding(6, 6, 0, 0) });
+
             optTbl.Controls.Add(optLeft, 0, 0);
             optTbl.Controls.Add(optRight, 1, 0);
+
             grpOptions.Controls.Add(optTbl);
 
             mainLayout.Controls.Add(grpOps, 0, 0);
@@ -246,9 +253,60 @@ namespace HammerTime.FaceTool.UI
             mainLayout.Controls.Add(grpOptions, 0, 2);
             mainLayout.SetColumnSpan(grpOptions, 2);
 
+            // --- PRESETS ---
+            var grpPresets = new GroupBox { Text = GetString("GroupPresets", "Presets"), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(6) };
+            var presetsTbl = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+            cmbProfiles = new ComboBox { Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
+            btnAddProfile = new Button { Text = "+", Width = 28, Height = 24 };
+            btnRenameProfile = new Button { Text = "R", Width = 28, Height = 24 };
+            btnDeleteProfile = new Button { Text = "-", Width = 28, Height = 24 };
+
+            presetsTbl.Controls.Add(new Label { Text = GetString("Preset", "Preset:"), AutoSize = true, Margin = new Padding(0, 4, 4, 0) });
+            presetsTbl.Controls.Add(cmbProfiles);
+            presetsTbl.Controls.Add(btnAddProfile);
+            presetsTbl.Controls.Add(btnRenameProfile);
+            presetsTbl.Controls.Add(btnDeleteProfile);
+            presetsTbl.Controls.Add(new Label
+            {
+                Text = "v0.1.1-alpha",
+                AutoSize = true,
+                ForeColor = Color.DimGray,
+                Font = new Font(this.Font.FontFamily, 7f, FontStyle.Regular),
+                Margin = new Padding(8, 6, 0, 0),
+                Anchor = AnchorStyles.Right
+            });
+            grpPresets.Controls.Add(presetsTbl);
+
+            mainLayout.Controls.Add(grpPresets, 0, 3);
+            mainLayout.SetColumnSpan(grpPresets, 2);
+
+            var spacer = new Panel { Height = 0, Dock = DockStyle.Fill };
+            mainLayout.Controls.Add(spacer, 0, 4);
+            mainLayout.SetColumnSpan(spacer, 2);
+
             this.Controls.Add(mainLayout);
             this.AutoSize = true;
             this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+
+            var toolTip = new ToolTip();
+            toolTip.SetToolTip(chkOperationLock, "Keep the current mode active after an operation is performed");
+            toolTip.SetToolTip(chkCtrlMode, "Require holding CTRL to execute operations on click");
+
+            toolTip.SetToolTip(btnAlign, GetString("AlignToolTip", "Align: Rotates the selected object so its source face matches the normal of the target face.\nSHIFT: (No modifier effect)."));
+            toolTip.SetToolTip(btnSnap, GetString("SnapToolTip", "Snap: Moves the selected object to touch the target plane using the closest vertex.\nSHIFT: Snaps using the furthest vertex (places object on the opposite side)."));
+            toolTip.SetToolTip(btnAlignSnap, GetString("AlignSnapToolTip", "Align + Snap: Rotates and moves the object to touch the target face, aligning their axes.\nSHIFT: (No modifier effect)."));
+            toolTip.SetToolTip(btnClone, GetString("CloneToFaceToolTip", "Clone To Face: Creates a clone of the object and snaps it onto the target face.\nCan create an array of clones if Array counts > 1.\nSHIFT: (No modifier effect)."));
+            toolTip.SetToolTip(btnTrim, GetString("TrimToolTip", "Trim: Cuts the selected solids using the plane of the clicked target face.\nSHIFT: Inverts the cut direction (keeps the opposite side of the geometry)."));
+            toolTip.SetToolTip(btnPlaceTrim, GetString("PlaceTrimToolTip", "Place & Trim: Aligns, snaps, and cuts the object against the target face in one action.\nSHIFT: Inverts the cut direction (keeps the opposite side of the geometry)."));
+            toolTip.SetToolTip(btnMiterJoin, GetString("MiterJoinToolTip", "Miter Join: Joins two intersecting objects at a clean diagonal angle (bisector split).\nSHIFT: Inverts the cut direction for both objects."));
+            toolTip.SetToolTip(btnRectify, GetString("RectifyToolTip", "Rectify: Aligns the selected object to the world axes based on its current face normal.\nSHIFT: (No modifier effect)."));
+            toolTip.SetToolTip(btnRestore, GetString("RestoreToolTip", "Restore from Anchor: Restores the object to its original position recorded before alignment."));
+            toolTip.SetToolTip(btnClearAnchor, GetString("ClearAnchorToolTip", "Clear Anchor: Clears the stored origin/rotation anchor data."));
+
+            btnAddProfile.Click += (s, e) => AddCurrentProfile();
+            btnRenameProfile.Click += (s, e) => RenameCurrentProfile();
+            btnDeleteProfile.Click += (s, e) => DeleteCurrentProfile();
+            cmbProfiles.SelectedIndexChanged += CmbProfiles_SelectedIndexChanged;
 
             btnAlign.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Align);
             btnAlignSnap.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.AlignSnap);
@@ -257,7 +315,7 @@ namespace HammerTime.FaceTool.UI
             btnPlaceTrim.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.PlaceTrim);
             btnSnap.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Snap);
             btnRectify.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.Rectify);
-            
+            btnMiterJoin.Click += async (s, e) => await _tool.SetCurrentMode(Tools.FaceTool.ToolMode.MiterJoin);
             // These are also unchanged for now
             btnRestore.Click += async (s, e) => await PerformRestore();
             btnClearAnchor.Click += async (s, e) => await PerformClearAnchor();
@@ -465,7 +523,7 @@ namespace HammerTime.FaceTool.UI
         }
         */
 
-        public async void PerformOperation(Tools.FaceTool.ToolMode mode, List<Tools.FaceTool.SelectedFace> faces)
+        public async void PerformOperation(Tools.FaceTool.ToolMode mode, List<Tools.FaceTool.SelectedFace> faces, bool altMode = false)
         {
             switch (mode)
             {
@@ -473,22 +531,25 @@ namespace HammerTime.FaceTool.UI
                     await PerformAlign(faces);
                     break;
                 case Tools.FaceTool.ToolMode.Snap:
-                    await PerformSnap(faces);
+                    await PerformSnap(faces, altMode);
                     break;
                 case Tools.FaceTool.ToolMode.AlignSnap:
                     await PerformAlignSnap(faces);
                     break;
                 case Tools.FaceTool.ToolMode.CloneToFace:
-                    await PerformClone(faces);
+                    await PerformClone(faces, altMode);
                     break;
                 case Tools.FaceTool.ToolMode.Trim:
-                    await PerformTrim(faces);
+                    await PerformTrim(faces, altMode);
                     break;
                 case Tools.FaceTool.ToolMode.Rectify:
                     await PerformRectify(faces);
                     break;
                 case Tools.FaceTool.ToolMode.PlaceTrim:
-                    await PerformPlaceTrim(faces);
+                    await PerformPlaceTrim(faces, altMode);
+                    break;
+                case Tools.FaceTool.ToolMode.MiterJoin:
+                    await PerformMiterJoin(faces, altMode);
                     break;
             }
         }
@@ -500,6 +561,12 @@ namespace HammerTime.FaceTool.UI
 
             var source = faces[0];
             var target = faces[1];
+
+            if (source.TransformableObject == target.TransformableObject)
+            {
+                await _tool.OperationComplete();
+                return;
+            }
 
             var pivot = Operations.FacePlacement.GetAlignPivot(source.Face, sourceAnchorIndex);
             var op = Operations.AlignOperation.Create(
@@ -513,7 +580,7 @@ namespace HammerTime.FaceTool.UI
             await _tool.OperationComplete();
         }
 
-        private async Task PerformSnap(List<Tools.FaceTool.SelectedFace> faces)
+        private async Task PerformSnap(List<Tools.FaceTool.SelectedFace> faces, bool altMode)
         {
             var doc = _tool.GetDocument();
             if (faces.Count < 1 || doc == null) return;
@@ -551,7 +618,8 @@ namespace HammerTime.FaceTool.UI
                 allVerts,
                 target.Face.Plane,
                 (float)numOffset.Value,
-                chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked);
+                chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked,
+                altMode);
 
             var transaction = new Transaction();
             foreach (var sourceObj in sourceObjects)
@@ -578,6 +646,12 @@ namespace HammerTime.FaceTool.UI
 
             var source = faces[0];
             var target = faces[1];
+
+            if (source.TransformableObject == target.TransformableObject)
+            {
+                await _tool.OperationComplete();
+                return;
+            }
 
             var pivot = Operations.FacePlacement.GetAlignPivot(source.Face, sourceAnchorIndex);
             var alignMatrix = Operations.AlignOperation.CreateMatrix(
@@ -610,7 +684,7 @@ namespace HammerTime.FaceTool.UI
             await _tool.OperationComplete();
         }
 
-        private async Task PerformClone(List<Tools.FaceTool.SelectedFace> faces)
+        private async Task PerformClone(List<Tools.FaceTool.SelectedFace> faces, bool altMode)
         {
             var doc = _tool.GetDocument();
             if (faces.Count < 2 || doc == null) return; 
@@ -642,24 +716,51 @@ namespace HammerTime.FaceTool.UI
             await _tool.OperationComplete();
         }
 
-        private async Task PerformTrim(List<Tools.FaceTool.SelectedFace> faces)
+        private async Task PerformTrim(List<Tools.FaceTool.SelectedFace> faces, bool altMode)
         {
             var doc = _tool.GetDocument();
-            if (faces.Count < 2 || doc == null) return;
+            if (faces.Count < 1 || doc == null) return;
 
-            var source = faces[0];
-            var target = faces[1];
+            var target = faces[0];
 
-            bool invert = chkInvertTrimSide.Checked ^ chkInvertNext.Checked;
-            var op = Operations.TrimOperation.Create(doc, source.Solid, target.Face.Plane, invert);
-            if (op is Transaction t && t.IsEmpty)
+            var rawSelection = doc.Selection?.ToList();
+            if (rawSelection == null || rawSelection.Count == 0) return;
+
+            // Filter out children whose parent is already in the selection (prevent double split)
+            var candidateSet = new HashSet<IMapObject>(rawSelection);
+            var sourceObjects = rawSelection.Where(obj => {
+                var parent = obj.Hierarchy.Parent;
+                while (parent != null)
+                {
+                    if (candidateSet.Contains(parent)) return false;
+                    parent = parent.Hierarchy.Parent;
+                }
+                return true;
+            }).ToList();
+
+            if (sourceObjects.Count == 0) return;
+
+            bool invert = altMode;
+            var transaction = new Transaction();
+
+            // Find all solids inside selection and split them
+            foreach (var obj in sourceObjects.SelectMany(o => o.FindAll()).OfType<Sledge.BspEditor.Primitives.MapObjects.Solid>())
             {
-                MessageBox.Show("The clipping plane does not intersect the solid.", "Trim Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var splitOp = Operations.TrimOperation.Create(doc, obj, target.Face.Plane, invert);
+                if (splitOp != null)
+                {
+                    transaction.Add(splitOp);
+                }
+            }
+
+            if (transaction.IsEmpty)
+            {
+                MessageBox.Show("The clipping plane does not intersect any selected solids.", "Trim Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 await _tool.OperationComplete();
                 return;
             }
-            await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
-            if (chkInvertNext.Checked) chkInvertNext.Checked = false;
+
+            await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, transaction);
             
             await _tool.OperationComplete();
         }
@@ -676,13 +777,19 @@ namespace HammerTime.FaceTool.UI
             await _tool.OperationComplete();
         }
 
-        private async Task PerformPlaceTrim(List<Tools.FaceTool.SelectedFace> faces)
+        private async Task PerformPlaceTrim(List<Tools.FaceTool.SelectedFace> faces, bool altMode)
         {
             var doc = _tool.GetDocument();
             if (faces.Count < 2 || doc == null) return;
 
             var source = faces[0];
             var target = faces[1];
+
+            if (source.TransformableObject == target.TransformableObject)
+            {
+                await _tool.OperationComplete();
+                return;
+            }
 
             var pivot = Operations.FacePlacement.GetAlignPivot(source.Face, sourceAnchorIndex);
             var alignMatrix = Operations.AlignOperation.CreateMatrix(
@@ -701,7 +808,7 @@ namespace HammerTime.FaceTool.UI
                 chkLockX.Checked, chkLockY.Checked, chkLockZ.Checked);
 
             var targets = new[] { source.TransformableObject };
-            bool invert = chkInvertTrimSide.Checked ^ chkInvertNext.Checked;
+            bool invert = altMode;
             var op = Operations.TrimOperation.CreateTransformAndTrim(doc, targets, alignMatrix * snapMatrix, target.Face.Plane, invert);
             if (op is Transaction t && t.IsEmpty)
             {
@@ -711,8 +818,33 @@ namespace HammerTime.FaceTool.UI
             }
 
             await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
-            if (chkInvertNext.Checked) chkInvertNext.Checked = false;
 
+            await _tool.OperationComplete();
+        }
+
+        private async Task PerformMiterJoin(List<Tools.FaceTool.SelectedFace> faces, bool altMode)
+        {
+            var doc = _tool.GetDocument();
+            if (faces.Count < 2 || doc == null) return;
+
+            var source = faces[0];
+            var target = faces[1];
+
+            if (source.Solid == target.Solid)
+            {
+                await _tool.OperationComplete();
+                return;
+            }
+
+            var op = Operations.MiterJoinOperation.Create(doc, source.Solid, source.Face, target.Solid, target.Face, altMode);
+            if (op is Transaction t && t.IsEmpty)
+            {
+                MessageBox.Show("The clipping plane does not intersect the selected solids.", "Miter Join Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                await _tool.OperationComplete();
+                return;
+            }
+
+            await Sledge.BspEditor.Modification.MapDocumentOperation.Perform(doc, op);
             await _tool.OperationComplete();
         }
 
@@ -758,6 +890,7 @@ namespace HammerTime.FaceTool.UI
                 [Tools.FaceTool.ToolMode.Trim] = btnTrim,
                 [Tools.FaceTool.ToolMode.Rectify] = btnRectify,
                 [Tools.FaceTool.ToolMode.PlaceTrim] = btnPlaceTrim,
+                [Tools.FaceTool.ToolMode.MiterJoin] = btnMiterJoin,
             };
 
             Color normalBack = btnRestore != null ? btnRestore.BackColor : SystemColors.Control;
@@ -871,9 +1004,7 @@ namespace HammerTime.FaceTool.UI
                 cmbScope.SelectedIndex = Math.Clamp(settings.ScopeIndex, 0, cmbScope.Items.Count - 1);
                 numOffset.Value = Math.Clamp(settings.Offset, numOffset.Minimum, numOffset.Maximum);
                 chkSnapGrid.Checked = settings.SnapToGrid;
-                chkInvertTrimSide.Checked = settings.InvertTrimSide;
-                chkShowHoverHelper.Checked = settings.ShowHoverHelper;
-                chkInvertNext.Checked = settings.InvertNext;
+                _tool.ShowHoverHelper = settings.ShowHoverHelper;
                 chkLockX.Checked = settings.LockX;
                 chkLockY.Checked = settings.LockY;
                 chkLockZ.Checked = settings.LockZ;
@@ -904,9 +1035,7 @@ namespace HammerTime.FaceTool.UI
                     ScopeIndex = cmbScope.SelectedIndex,
                     Offset = numOffset.Value,
                     SnapToGrid = chkSnapGrid.Checked,
-                    InvertTrimSide = chkInvertTrimSide.Checked,
-                    ShowHoverHelper = chkShowHoverHelper.Checked,
-                    InvertNext = chkInvertNext.Checked,
+                    ShowHoverHelper = _tool.ShowHoverHelper,
                     LockX = chkLockX.Checked,
                     LockY = chkLockY.Checked,
                     LockZ = chkLockZ.Checked,
@@ -934,8 +1063,278 @@ namespace HammerTime.FaceTool.UI
             catch { }
         }
 
+        protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
+        {
+            if (_tool.ProcessModeChangeKey(keyData))
+            {
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private string GetString(string key, string defaultValue)
+        {
+            if (_translator?.Value == null) return defaultValue;
+            var val = _translator.Value.GetString("HammerTime.FaceTool.FaceToolWindow", key);
+            return string.IsNullOrEmpty(val) ? defaultValue : val;
+        }
+
         private static int GridIndexFromAnchor(int anchorIndex)
             => anchorIndex == Operations.FacePlacement.AnchorOff ? -1 : Math.Clamp(anchorIndex, 0, 8);
+
+        private void LoadProfilesList()
+        {
+            _profiles.Clear();
+            try
+            {
+                if (File.Exists(ProfilesFilePath))
+                {
+                    string json = File.ReadAllText(ProfilesFilePath);
+                    var loaded = System.Text.Json.JsonSerializer.Deserialize<List<FaceToolProfile>>(json);
+                    if (loaded != null) _profiles.AddRange(loaded);
+                }
+            }
+            catch { }
+
+            if (_profiles.Count == 0)
+            {
+                _profiles.Add(new FaceToolProfile { Name = "Default", ScopeIndex = 0, Offset = 0, CtrlMode = true });
+                _profiles.Add(new FaceToolProfile { Name = "Wall Alignment (No Rot Z)", ScopeIndex = 0, RotX = true, RotY = true, RotZ = false });
+                _profiles.Add(new FaceToolProfile { Name = "Pipe Miter Join", ScopeIndex = 1, RotX = true, RotY = true, RotZ = true });
+                SaveProfilesList();
+            }
+
+            UpdateProfilesCombo();
+        }
+
+        private void SaveProfilesList()
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(ProfilesFilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                string json = System.Text.Json.JsonSerializer.Serialize(_profiles, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(ProfilesFilePath, json);
+            }
+            catch { }
+        }
+
+        private void UpdateProfilesCombo()
+        {
+            if (cmbProfiles == null) return;
+            
+            cmbProfiles.SelectedIndexChanged -= CmbProfiles_SelectedIndexChanged;
+            
+            string? currentName = cmbProfiles.SelectedItem?.ToString();
+            cmbProfiles.Items.Clear();
+            foreach (var p in _profiles)
+            {
+                cmbProfiles.Items.Add(p.Name);
+            }
+            
+            int idx = -1;
+            if (currentName != null)
+            {
+                idx = cmbProfiles.FindStringExact(currentName);
+            }
+            if (idx == -1 && cmbProfiles.Items.Count > 0)
+            {
+                idx = 0;
+            }
+            if (idx >= 0)
+            {
+                cmbProfiles.SelectedIndex = idx;
+                LoadProfile(_profiles[idx]);
+            }
+            
+            cmbProfiles.SelectedIndexChanged += CmbProfiles_SelectedIndexChanged;
+        }
+
+        private void CmbProfiles_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            int idx = cmbProfiles.SelectedIndex;
+            if (idx >= 0 && idx < _profiles.Count)
+            {
+                LoadProfile(_profiles[idx]);
+            }
+        }
+
+        private void LoadProfile(FaceToolProfile profile)
+        {
+            if (profile == null) return;
+
+            cmbScope.SelectedIndex = Math.Clamp(profile.ScopeIndex, 0, cmbScope.Items.Count - 1);
+            numOffset.Value = Math.Clamp(profile.Offset, numOffset.Minimum, numOffset.Maximum);
+            chkSnapGrid.Checked = profile.SnapToGrid;
+            chkLockX.Checked = profile.LockX;
+            chkLockY.Checked = profile.LockY;
+            chkLockZ.Checked = profile.LockZ;
+            chkRotX.Checked = profile.RotX;
+            chkRotY.Checked = profile.RotY;
+            chkRotZ.Checked = profile.RotZ;
+            chkKeepHierarchy.Checked = profile.KeepHierarchy;
+            chkOperationLock.Checked = profile.OperationLock;
+            chkCtrlMode.Checked = profile.CtrlMode;
+
+            numArrayX.Value = Math.Clamp(profile.ArrayX, numArrayX.Minimum, numArrayX.Maximum);
+            numArrayY.Value = Math.Clamp(profile.ArrayY, numArrayY.Minimum, numArrayY.Maximum);
+            numSpaceX.Value = Math.Clamp(profile.SpaceX, numSpaceX.Minimum, numSpaceX.Maximum);
+            numSpaceY.Value = Math.Clamp(profile.SpaceY, numSpaceY.Minimum, numSpaceY.Maximum);
+
+            SetTargetRose(GridIndexFromAnchor(profile.TargetAnchor));
+            SetSourceRose(GridIndexFromAnchor(profile.SourceAnchor));
+        }
+
+        private FaceToolProfile GetCurrentSettings(string name)
+        {
+            return new FaceToolProfile
+            {
+                Name = name,
+                ScopeIndex = cmbScope.SelectedIndex,
+                Offset = numOffset.Value,
+                SnapToGrid = chkSnapGrid.Checked,
+                LockX = chkLockX.Checked,
+                LockY = chkLockY.Checked,
+                LockZ = chkLockZ.Checked,
+                RotX = chkRotX.Checked,
+                RotY = chkRotY.Checked,
+                RotZ = chkRotZ.Checked,
+                TargetAnchor = targetAnchorIndex,
+                SourceAnchor = sourceAnchorIndex,
+                ArrayX = (int)numArrayX.Value,
+                ArrayY = (int)numArrayY.Value,
+                SpaceX = numSpaceX.Value,
+                SpaceY = numSpaceY.Value,
+                KeepHierarchy = chkKeepHierarchy.Checked,
+                OperationLock = chkOperationLock.Checked,
+                CtrlMode = chkCtrlMode.Checked
+            };
+        }
+
+        private void AddCurrentProfile()
+        {
+            string name = PromptForInput("Enter profile name:", "Add Profile");
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            if (_profiles.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show($"A profile named '{name}' already exists.", "Add Profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var newProfile = GetCurrentSettings(name);
+            _profiles.Add(newProfile);
+            SaveProfilesList();
+            UpdateProfilesCombo();
+
+            int idx = cmbProfiles.FindStringExact(name);
+            if (idx >= 0) cmbProfiles.SelectedIndex = idx;
+        }
+
+        private void DeleteCurrentProfile()
+        {
+            int idx = cmbProfiles.SelectedIndex;
+            if (idx < 0 || idx >= _profiles.Count) return;
+
+            var profile = _profiles[idx];
+            if (profile.Name == "Default")
+            {
+                MessageBox.Show("Cannot delete the Default profile.", "Delete Profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var confirm = MessageBox.Show($"Are you sure you want to delete profile '{profile.Name}'?", "Delete Profile", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (confirm == DialogResult.Yes)
+            {
+                _profiles.RemoveAt(idx);
+                SaveProfilesList();
+                UpdateProfilesCombo();
+            }
+        }
+
+        private void RenameCurrentProfile()
+        {
+            int idx = cmbProfiles.SelectedIndex;
+            if (idx < 0 || idx >= _profiles.Count) return;
+
+            var profile = _profiles[idx];
+            if (profile.Name == "Default")
+            {
+                MessageBox.Show("Cannot rename the Default profile.", "Rename Profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string newName = PromptForInput("Enter new profile name:", "Rename Profile", profile.Name);
+            if (string.IsNullOrWhiteSpace(newName) || newName.Equals(profile.Name, StringComparison.Ordinal)) return;
+
+            if (_profiles.Any(p => p.Name.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show($"A profile named '{newName}' already exists.", "Rename Profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            profile.Name = newName;
+            SaveProfilesList();
+            UpdateProfilesCombo();
+
+            int newIdx = cmbProfiles.FindStringExact(newName);
+            if (newIdx >= 0) cmbProfiles.SelectedIndex = newIdx;
+        }
+
+        private string PromptForInput(string promptText, string title, string defaultValue = "")
+        {
+            Form prompt = new Form()
+            {
+                Width = 320,
+                Height = 150,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Text = title,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+            Label textLabel = new Label() { Left = 16, Top = 16, Text = promptText, AutoSize = true };
+            TextBox textBox = new TextBox() { Left = 16, Top = 36, Width = 270, Text = defaultValue };
+            Button confirmation = new Button() { Text = "OK", Left = 110, Width = 80, Top = 75, DialogResult = DialogResult.OK };
+            Button cancel = new Button() { Text = "Cancel", Left = 200, Width = 80, Top = 75, DialogResult = DialogResult.Cancel };
+            
+            prompt.Controls.Add(textBox);
+            prompt.Controls.Add(confirmation);
+            prompt.Controls.Add(cancel);
+            prompt.Controls.Add(textLabel);
+            prompt.AcceptButton = confirmation;
+            prompt.CancelButton = cancel;
+
+            Sledge.Shell.Registers.DialogRegister.ColorControlsRecursively(prompt, _isDarkTheme);
+
+            return prompt.ShowDialog(this) == DialogResult.OK ? textBox.Text : "";
+        }
+    }
+
+    public class FaceToolProfile
+    {
+        public string Name { get; set; } = "";
+        public int ScopeIndex { get; set; } = 0;
+        public decimal Offset { get; set; } = 0;
+        public bool SnapToGrid { get; set; } = false;
+        public bool LockX { get; set; } = false;
+        public bool LockY { get; set; } = false;
+        public bool LockZ { get; set; } = false;
+        public bool RotX { get; set; } = true;
+        public bool RotY { get; set; } = true;
+        public bool RotZ { get; set; } = false;
+        public int TargetAnchor { get; set; } = -1;
+        public int SourceAnchor { get; set; } = -1;
+        public int ArrayX { get; set; } = 1;
+        public int ArrayY { get; set; } = 1;
+        public decimal SpaceX { get; set; } = 0;
+        public decimal SpaceY { get; set; } = 0;
+        public bool KeepHierarchy { get; set; } = true;
+        public bool OperationLock { get; set; } = false;
+        public bool CtrlMode { get; set; } = true;
     }
 
     public class FaceToolSettings
@@ -945,9 +1344,7 @@ namespace HammerTime.FaceTool.UI
         public int ScopeIndex { get; set; } = 0;
         public decimal Offset { get; set; } = 0;
         public bool SnapToGrid { get; set; } = false;
-        public bool InvertTrimSide { get; set; } = false;
         public bool ShowHoverHelper { get; set; } = true;
-        public bool InvertNext { get; set; } = false;
         public bool LockX { get; set; } = false;
         public bool LockY { get; set; } = false;
         public bool LockZ { get; set; } = false;
