@@ -72,11 +72,14 @@ namespace HammerTime.FaceTool.UI
         );
 
         private bool _isDarkTheme;
+        private Font? _fontBoldCache;
+        private Font? _fontRegularCache;
 
         public FaceToolWindow(Tools.FaceTool tool, Lazy<Sledge.Common.Translations.ITranslationStringProvider> translator)
         {
             _tool = tool;
             _translator = translator;
+            this.AutoScaleMode = AutoScaleMode.Dpi;
             InitializeComponent();
             LoadProfilesList();
             
@@ -119,7 +122,7 @@ namespace HammerTime.FaceTool.UI
 
             // --- OPERATIONS ---
             var grpOps = new GroupBox { Text = GetString("GroupOperations", "Operations"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var opsTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, AutoSize = true, Width = 240 };
+            var opsTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, AutoSize = true };
             opsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             opsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             for (int r = 0; r < 4; r++) opsTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
@@ -144,7 +147,7 @@ namespace HammerTime.FaceTool.UI
 
             // --- ANCHOR MANAGEMENT ---
             var grpAncMan = new GroupBox { Text = GetString("GroupAnchor", "Anchor / Rectification"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var ancTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, AutoSize = true, Width = 240 };
+            var ancTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, AutoSize = true };
             for (int r = 0; r < 4; r++) ancTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
 
             btnRectify = new Button { Text = GetString("Rectify", "Rectify"), Dock = DockStyle.Fill, Margin = new Padding(1) };
@@ -159,7 +162,7 @@ namespace HammerTime.FaceTool.UI
 
             // --- PLACEMENT (two roses) ---
             var grpPlacement = new GroupBox { Text = GetString("GroupPlacement", "Placement"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var placementTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true, Width = 240 };
+            var placementTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true };
             placementTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             placementTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
 
@@ -180,7 +183,7 @@ namespace HammerTime.FaceTool.UI
 
             // --- CLONE ARRAY ---
             var grpClone = new GroupBox { Text = GetString("GroupClone", "Clone Array Options"), Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(6) };
-            var cloneTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, AutoSize = true, Width = 240 };
+            var cloneTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, AutoSize = true };
             cloneTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
             cloneTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             cloneTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
@@ -285,8 +288,10 @@ namespace HammerTime.FaceTool.UI
             mainLayout.SetColumnSpan(spacer, 2);
 
             this.Controls.Add(mainLayout);
-            this.AutoSize = true;
-            this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            mainLayout.PerformLayout();
+            this.ClientSize = new Size(
+                Math.Max(this.MinimumSize.Width, mainLayout.PreferredSize.Width),
+                Math.Max(this.MinimumSize.Height, mainLayout.PreferredSize.Height));
 
             var toolTip = new ToolTip();
             toolTip.SetToolTip(chkOperationLock, "Keep the current mode active after an operation is performed");
@@ -523,7 +528,7 @@ namespace HammerTime.FaceTool.UI
         }
         */
 
-        public async void PerformOperation(Tools.FaceTool.ToolMode mode, List<Tools.FaceTool.SelectedFace> faces, bool altMode = false)
+        public async Task PerformOperation(Tools.FaceTool.ToolMode mode, List<Tools.FaceTool.SelectedFace> faces, bool altMode = false)
         {
             switch (mode)
             {
@@ -694,6 +699,16 @@ namespace HammerTime.FaceTool.UI
             var targets = new[] { source.TransformableObject };
             int countX = (int)numArrayX.Value;
             int countY = (int)numArrayY.Value;
+
+            if (countX * countY > 200)
+            {
+                var confirm = MessageBox.Show($"Будет создано {countX * countY} объектов. Продолжить?", "Face Tool", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (confirm != DialogResult.Yes)
+                {
+                    await _tool.OperationComplete();
+                    return;
+                }
+            }
 
             IOperation op = countX > 1 || countY > 1
                 ? Operations.CloneAndArrayOperations.CreateArray(
@@ -895,6 +910,8 @@ namespace HammerTime.FaceTool.UI
 
             Color normalBack = btnRestore != null ? btnRestore.BackColor : SystemColors.Control;
             Color normalFore = btnRestore != null ? btnRestore.ForeColor : SystemColors.ControlText;
+            _fontBoldCache ??= new Font(btnAlign.Font, FontStyle.Bold);
+            _fontRegularCache ??= new Font(btnAlign.Font, FontStyle.Regular);
 
             foreach (var p in buttons)
             {
@@ -904,13 +921,13 @@ namespace HammerTime.FaceTool.UI
                 {
                     p.Value.BackColor = Color.DodgerBlue;
                     p.Value.ForeColor = Color.White;
-                    p.Value.Font = new Font(p.Value.Font, FontStyle.Bold);
+                    p.Value.Font = _fontBoldCache;
                 }
                 else
                 {
                     p.Value.BackColor = normalBack;
                     p.Value.ForeColor = normalFore;
-                    p.Value.Font = new Font(p.Value.Font, FontStyle.Regular);
+                    p.Value.Font = _fontRegularCache;
                 }
             }
         }
@@ -1286,7 +1303,7 @@ namespace HammerTime.FaceTool.UI
 
         private string PromptForInput(string promptText, string title, string defaultValue = "")
         {
-            Form prompt = new Form()
+            using Form prompt = new Form()
             {
                 Width = 320,
                 Height = 150,

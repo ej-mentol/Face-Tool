@@ -312,7 +312,7 @@ namespace HammerTime.FaceTool.Tools
 
             var doc = GetDocument();
 
-            if (mode == ToolMode.Snap || mode == ToolMode.Trim || mode == ToolMode.MiterJoin)
+            if (mode == ToolMode.Snap || mode == ToolMode.Trim)
             {
                 if (doc == null || doc.Selection == null || doc.Selection.IsEmpty)
                 {
@@ -324,7 +324,7 @@ namespace HammerTime.FaceTool.Tools
             CurrentMode = mode;
             _selectedFaces.Clear();
 
-            if (doc != null && CurrentMode != ToolMode.None && CurrentMode != ToolMode.Snap && CurrentMode != ToolMode.Trim && CurrentMode != ToolMode.MiterJoin)
+            if (doc != null && CurrentMode != ToolMode.None && CurrentMode != ToolMode.Snap && CurrentMode != ToolMode.Trim)
             {
                 if (doc.Selection != null && !doc.Selection.IsEmpty)
                 {
@@ -376,6 +376,19 @@ namespace HammerTime.FaceTool.Tools
             finally
             {
                 _processingOperation = false;
+            }
+        }
+
+        private async void RunOperation(ToolMode mode, List<SelectedFace> faces, bool altMode = false)
+        {
+            try
+            {
+                await _window.PerformOperation(mode, faces, altMode);
+            }
+            catch (Exception ex)
+            {
+                _processingOperation = false;
+                MessageBox.Show(ex.Message, "Face Tool Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -576,7 +589,7 @@ namespace HammerTime.FaceTool.Tools
             {
                 _processingOperation = true;
                 _selectedFaces.Add(selectedFaceInfo);
-                _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
+                RunOperation(CurrentMode, new List<SelectedFace>(_selectedFaces));
                 return;
             }
 
@@ -590,7 +603,7 @@ namespace HammerTime.FaceTool.Tools
                     _selectedFaces.Add(selectedFaceInfo); // Target
                     
                     bool useAltMode = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
-                    _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces), useAltMode);
+                    RunOperation(CurrentMode, new List<SelectedFace>(_selectedFaces), useAltMode);
                 }
                 viewport.Control.Invalidate();
                 return;
@@ -608,7 +621,7 @@ namespace HammerTime.FaceTool.Tools
                     _processingOperation = true;
                     _selectedFaces.Add(selectedFaceInfo);
                     bool useAltMode = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
-                    _window.PerformOperation(CurrentMode, new List<SelectedFace>(_selectedFaces), useAltMode);
+                    RunOperation(CurrentMode, new List<SelectedFace>(_selectedFaces), useAltMode);
                 }
                 else
                 {
